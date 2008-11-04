@@ -2,7 +2,7 @@
 @knownRegionsToTopHundreds = 
 {
     'United States'             => 25204,
-    'Argentina'                 => 25129,
+    # doesn't work right, not sure why 'Argentina'                 => 25129,
     'Australia'                 => 25211,
     'Canada'                    => 25208,
     'Denmark'                   => 25207,
@@ -277,6 +277,7 @@ def main
     end
     
     puts "\n****** #{title} - #{categoryName} ******"
+    puts "\e[1mRegion\e[0m               \e[1mRank\e[0m  \e[1mChange\e[0m"
     
     orderedRegions = @region_codes.keys.sort do |a, b|
         a.casecmp(b)
@@ -326,10 +327,10 @@ def main
                         if result['rank'] == "NR" then
                             oldStatsValue = "\e[33m+0\e[0m"
                         else
-                            oldStatsValue = "\e[32m+#{100 - result['rank'].to_i}\e[0m"
+                            oldStatsValue = "\e[32m+#{100 - result['rank'].to_i} (++)\e[0m"
                         end
                     elsif result['rank'] == "NR" then
-                        oldStatsValue = "\e[31m#{100 - oldRank.to_i}\e[0m"
+                        oldStatsValue = "\e[31m#{oldRank.to_i - 100} (--)\e[0m"
                     elsif oldRank.to_i < result['rank'].to_i then
                         oldStatsValue = "\e[31m#{oldRank.to_i - result['rank'].to_i}\e[0m"
                     elsif oldRank.to_i > result['rank'].to_i then
