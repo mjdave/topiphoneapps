@@ -47,7 +47,8 @@
     'Travel'                => 72,
     'Utilities'             => 80,
     'Weather'               => 88
-}
+    }
+    #'Word'                 => 981   nope  1005 is the genre offset from games, but doesn't work
 
 
 
@@ -177,44 +178,60 @@ def scanCategories
     end
 end
 
-def printStatsForRegion(regionName, categoryName, category)
+def printStatsForRegion(regionName, categoryName, topPaid, specificCategory)
     result = {}
     
 
     regionID = @region_codes[regionName]
     datastring = String.new()
-    IO.popen("curl -s -A \"iTunes/4.2 (Macintosh; U; PPC Mac OS X 10.2)\" -H \"X-Apple-Store-Front: #{regionID}-1\" 'http://ax.phobos.apple.com.edgesuite.net/WebObjects/MZStore.woa/wa/viewTop?id=#{category}&popId=30' | gunzip") {|d| datastring += d.read}
+    
+    categoriesToFetch = [topPaid]
+    categoriesToFetch << specificCategory if specificCategory != topPaid
+    
+    categoriesToFetch.each do |category|
+      datastring = String.new()
+      IO.popen("curl -s -A \"iTunes/4.2 (Macintosh; U; PPC Mac OS X 10.2)\" -H \"X-Apple-Store-Front: #{regionID}-1\" 'http://ax.phobos.apple.com.edgesuite.net/WebObjects/MZStore.woa/wa/viewTop?id=#{category}&popId=30' | gunzip") {|d| datastring += d.read}
     
     
-    #categoryNameFound = datastring.match(/pageName=(.*)&amp;pccr=/)[1]
+      #categoryNameFound = datastring.match(/pageName=(.*)&amp;pccr=/)[1]
     
-    buys = datastring.scan(/\<Buy.*\>/)
+      buys = datastring.scan(/\<Buy.*\>/)
     
-    found = false
-    buys.each_with_index do |value, index|
-        title = value.match(/itemName="(.*)"/)
-        if title then
-            match = nil
-            if @appID then 
-                itemID = value.match(/salableAdamId=(\d+)&amp/)[1].to_i
-                match = @appID == itemID
-            elsif @appName then
-                match = title[1].match(/#{@appName}/)
-            end
+      found = false
+      buys.each_with_index do |value, index|
+          #puts "index #{index} is value is #{value} " 
+          title = value.match(/itemName="(.*)"/)
+          if title then
+              match = nil
+              if @appID then 
+                  itemID = value.match(/salableAdamId=(\d+)&amp/)[1].to_i
+                  match = @appID == itemID
+              elsif @appName then
+                  match = title[1].match(/#{@appName}/)
+              end
             
-            if match then
-                result['regionName'] = regionName
-                result['appName'] = unescapeHTML(title[1])
-                result['rank'] = (index + 1).to_s
-                found = true
-                break
-            end
-        end
-    end
+              if match then
+                  result['regionName'] = regionName
+                  result['appName'] = unescapeHTML(title[1])
+                  if(category == topPaid) 
+                    result['topPaid'] = (index + 1).to_s
+                  else
+                    result['rank'] = (index + 1).to_s
+                  end  
+                  found = true
+                  break
+              end
+          end
+      end
     
-    if !found then
-        result['regionName'] = regionName
-        result['rank'] = "NR"
+      if !found then
+          result['regionName'] = regionName
+          if(category == topPaid) 
+            result['topPaid'] = "NR"
+          else
+            result['rank'] = "NR"
+          end  
+      end
     end
     
     result
@@ -240,14 +257,14 @@ def main
     end
     
     threads = []
-    @knownRegionsToTopHundreds.each do |regionName, categoryID|
+    @knownRegionsToTopHundreds.each do |regionName, topPaidCategoryID|
         #this hackyOffset thing is because the category offset is incorrect in the 25129 offset. Works for games, untested otherwise
         hackyOffset = 0
-        if categoryOffset != 0 and categoryID == 25129 then
+        if categoryOffset != 0 and topPaidCategoryID == 25129 then
             hackyOffset = 29
         end
-        
-        threads << Thread.new {printStatsForRegion(regionName, categoryName, categoryID + categoryOffset + hackyOffset)}
+        specificCategoryID = topPaidCategoryID + categoryOffset + hackyOffset
+        threads << Thread.new {printStatsForRegion(regionName, categoryName, topPaidCategoryID, specificCategoryID)}
     end
     
     results = []
@@ -310,17 +327,29 @@ def main
             regionTitle = regionTitle + "_"
         end
         
-        rank = result['rank']
-        noRank = rank == "NR"
-        rank = rank + " "
-        while rank.length < 5 do
-            rank = rank + "_"
+        
+        topPaidRank = result['topPaid']
+        noTopPaidRank = topPaidRank == "NR"
+        topPaidRank = topPaidRank + " "
+        while topPaidRank.length < 5 do
+            topPaidRank = topPaidRank + "_"
         end
+        
+        if @categoryName != nil
+          rank = result['rank']
+          noRank = rank == "NR"
+          rank = rank + " "
+          while rank.length < 5 do
+              rank = rank + "_"
+          end
+        end  
         
         oldStatsValue = "\e[33m+0\e[0m"
         if oldStats then
             if oldStats[index]['regionName'] == result['regionName'] then
+              if @categoryName != nil
                 oldRank = oldStats[index]['rank']
+
                 if oldRank then
                     if oldRank == "NR" then
                         if result['rank'] == "NR" then
@@ -338,13 +367,37 @@ def main
                         oldStatsValue = "\e[33m+0\e[0m"
                     end
                 end
+              end
+                
+                
+                oldTopPaid = oldStats[index]['topPaid']
+                 if oldTopPaid then
+                      if oldTopPaid == "NR" then
+                          if result['topPaid'] == "NR" then
+                              oldTPStatsValue = "\e[33m+0\e[0m"
+                          else
+                              oldTPStatsValue = "\e[32m+#{100 - result['topPaid'].to_i}\e[0m"
+                          end
+                      elsif result['topPaid'] == "NR" then
+                          oldTPStatsValue = "\e[31m#{100 - oldTopPaid.to_i}\e[0m"
+                      elsif oldTopPaid.to_i < result['topPaid'].to_i then
+                          oldTPStatsValue = "\e[31m#{oldTopPaid.to_i - result['topPaid'].to_i}\e[0m"
+                      elsif oldTopPaid.to_i > result['topPaid'].to_i then
+                          oldTPStatsValue = "\e[32m+#{oldTopPaid.to_i - result['topPaid'].to_i}\e[0m"
+                      else
+                          oldTPStatsValue = "\e[33m+0\e[0m"
+                      end
+                  end
+                
             end
         end
         
-        if noRank then
-            prettyResults << "#{regionTitle} \e[31m#{rank}\e[0m #{oldStatsValue}"
-        else
-            prettyResults << "#{regionTitle} \e[32m#{rank}\e[0m #{oldStatsValue}"
+        if (@categoryName != nil && !noRank) || !noTopPaidRank then
+          resultToPrint = "#{regionTitle}"
+          resultToPrint += " \e[32m#{rank}\e[0m #{oldStatsValue} " unless @categoryName == nil
+          resultToPrint += "      Top Paid:" unless @categoryName == nil or noTopPaidRank 
+          resultToPrint += " \e[32m#{topPaidRank}\e[0m #{oldTPStatsValue}" unless noTopPaidRank
+          prettyResults << resultToPrint
         end
     end
     
